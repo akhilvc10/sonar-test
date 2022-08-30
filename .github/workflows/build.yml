@@ -1,29 +1,61 @@
-on:
-  # Trigger analysis when pushing in master or pull requests, and when creating
-  # a pull request.
-  push:
-    branches:
-      - master
-  pull_request:
-      types: [opened, synchronize, reopened]
-name: Main Workflow
+name: CI
+
+on: [push]
+
+env:
+  CI: true
 jobs:
-  sonarcloud:
+  build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-      with:
-        fetch-depth: 0
-    - name: Get master
-      run: git fetch origin master
-    - name: Install dependencies
-      run:  npm install
-    - name: Install Jest globally
-      run:  sudo npm install -g jest
-    - name: Run Tests
-      run:  npm run test
-    - name: SonarCloud Scan
-      uses: sonarsource/sonarcloud-github-action@master
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm install
+      - run: npm run audit --production
+      - run: npm run build
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: dist
+          path: dist
+  test:
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # Available OS's: https://help.github.com/en/actions/reference/virtual-environments-for-github-hosted-runners
+        os: [ubuntu-latest, windows-latest]
+        node-version: [16.x, 14.x]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm install
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: dist
+          path: dist
+      - run: npm run lint
+      - run: npm run test
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v3
+        with:
+          name: code-coverage-report
+          path: coverage
+
+      # Sonar analysis needs the full history for features like automatic assignment of bugs. If the following step
+      # is not included the project will show a warning about incomplete information.
+      - run: git fetch --unshallow
+        if: ${{ matrix.node-version == '16.x' && matrix.os == 'ubuntu-latest' }}
+      # Run Sonar analysis on just the latest ubuntu/node runner.
+      - uses: SonarSource/sonarcloud-github-action@v1.6
+        if: ${{ matrix.node-version == '16.x' && matrix.os == 'ubuntu-latest' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
