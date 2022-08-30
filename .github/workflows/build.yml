@@ -13,9 +13,8 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-      - run: npm ci
+      - run: npm install
       - run: npm run audit --production
-      - run: npm run audit-licenses
       - run: npm run build
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
